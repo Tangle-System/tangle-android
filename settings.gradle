@@ -1,0 +1,3 @@
+include ':TangleLibrary'
+include ':app'
+rootProject.name = "TangleLib"
