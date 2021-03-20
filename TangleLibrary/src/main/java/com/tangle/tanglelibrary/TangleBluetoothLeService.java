@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothProfile;
 import android.content.Intent;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -21,32 +22,39 @@ import java.util.UUID;
 
 public class TangleBluetoothLeService extends Service {
     private final String TAG = TangleBluetoothLeService.class.getName();
+    public final int STATE_DISCONNECTED = 0;
+    public final int STATE_CONNECTING = 1;
+    public final int STATE_CONNECTED = 2;
+    public final int STATE_DISCONNECTING = 3;
+    final int FLAG_SYNC_TIMELINE = 242;
 
     private boolean isDataSent = true;
+    private boolean isSynchronized = false;
     public boolean isConnecting = false;
+    private boolean paused = true;
+    private long time = 0;
+    private long startTime;
+    private long lastPauseTime;
+    private long pauseTime = 0;
 
     static final long x7fffffff = Long.decode("0x7fffffff");
     static final long xfff = Long.decode("0xffffffff");
 
     private final UUID mDeviceUUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb");
-    private final UUID mCharacteristicUUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb");
+    private final UUID terminalCharacteristicUUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb");
+    private final UUID syncCharacteristicUUID = UUID.fromString("0000ffe2-0000-1000-8000-00805f9b34fb");
 
     private BluetoothGatt bluetoothGatt;
     private int connectionState = STATE_DISCONNECTED;
-    private ChangeBtStateListener listener;
+    private TangleBluetoothLeService.ChangeBtStateListener listener;
 
-    private static final int STATE_DISCONNECTED = 0;
-    private static final int STATE_CONNECTING = 1;
-    private static final int STATE_CONNECTED = 2;
-    private static final int STATE_DISCONNECTING = 3;
-    final int FLAG_SYNC_TIMELINE = 242;
 
     public void connectBt(BluetoothDevice device) {
         isConnecting = true;
         bluetoothGatt = device.connectGatt(this, false, gattCallback);
     }
 
-    public void setChangeBtStateListener(ChangeBtStateListener listener) {
+    public void setChangeBtStateListener(TangleBluetoothLeService.ChangeBtStateListener listener) {
         this.listener = listener;
     }
 
@@ -54,9 +62,9 @@ public class TangleBluetoothLeService extends Service {
         void onChangeBtState(int connectionState);
     }
 
-    public void setConnectionState(int connectionState){
+    public void setConnectionState(int connectionState) {
         this.connectionState = connectionState;
-        if(listener != null) listener.onChangeBtState(connectionState);
+        if (listener != null) listener.onChangeBtState(connectionState);
     }
 
     // Various callback methods defined by the BLE API.
@@ -67,7 +75,7 @@ public class TangleBluetoothLeService extends Service {
                 case BluetoothProfile.STATE_CONNECTING:
                     setConnectionState(STATE_CONNECTING);
                     isConnecting = true;
-                    Log.i(TAG,"Connecting to GATT server.");
+                    Log.i(TAG, "Connecting to GATT server.");
                     break;
                 case BluetoothProfile.STATE_CONNECTED:
                     setConnectionState(STATE_CONNECTED);
@@ -94,7 +102,18 @@ public class TangleBluetoothLeService extends Service {
         // New services discovered
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                syncTime();
+                new Thread(() -> {
+                    syncClock();
+                    while(!isSynchronized){
+                        Log.d(TAG, "Waiting for free corridor");
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    syncTime();
+                }).start();
             } else {
                 Log.w(TAG, "onServicesDiscovered received: " + status);
             }
@@ -123,46 +142,49 @@ public class TangleBluetoothLeService extends Service {
                 Log.d(TAG, "Wrote: " + logBytes(data));
                 isDataSent = true;
             }
+            if (data[0] == 0){
+                isSynchronized = true;
+            }
         }
 
     };
 
-    public int getConnectionState(){
+    public int getConnectionState() {
         return connectionState;
     }
 
-    public void getPayloadFromTngl(byte[] tnglCode){
+    public void getPayloadFromTngl(byte[] tnglCode) {
         final long syncTimestamp = getTimestamp();
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             outputStream.write(FLAG_SYNC_TIMELINE);
             outputStream.write(longToBytes(syncTimestamp, 4));
-            outputStream.write(longToBytes(0,4)); // timelineTimestamp
+            outputStream.write(longToBytes(0, 4)); // timelineTimestamp
             outputStream.write(1); // timelinePaused 0 = false; 1 = true;
             outputStream.write(tnglCode);
-        } catch (Exception e){
+        } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
-        byte [] payload = outputStream.toByteArray();
+        byte[] payload = outputStream.toByteArray();
         write(payload);
 
     }
 
-    private void write(byte [] payload) {
+    private void write(byte[] payload) {
 
-        long payloadUuid = (long)(Math.random() * xfff);
+        long payloadUuid = (long) (Math.random() * xfff);
         int packetSize = 512;
-        int bytesSize = packetSize -12;
+        int bytesSize = packetSize - 12;
 
         int indexFrom = 0;
         int indexTo = bytesSize;
 
-        BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(mCharacteristicUUID);
+        BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
         characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
 
-        while(indexFrom < payload.length){
-            if(indexTo > payload.length){
+        while (indexFrom < payload.length) {
+            if (indexTo > payload.length) {
                 indexTo = payload.length;
             }
 
@@ -171,17 +193,17 @@ public class TangleBluetoothLeService extends Service {
                 outputStream.write(longToBytes(payloadUuid, 4));
                 outputStream.write(longToBytes(indexFrom, 4));
                 outputStream.write(longToBytes(payload.length, 4));
-                outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo ));
-            } catch (Exception e){
+                outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo));
+            } catch (Exception e) {
                 Log.e(TAG, "" + e);
             }
-            byte [] bytes = outputStream.toByteArray();
+            byte[] bytes = outputStream.toByteArray();
 
-            try{
+            try {
                 Log.d(TAG, "Tray write: " + logBytes(bytes));
                 characteristic.setValue(bytes);
-            } catch (Exception e){
-                Log.e(TAG,"" + e);
+            } catch (Exception e) {
+                Log.e(TAG, "" + e);
             }
 
             try {
@@ -197,36 +219,161 @@ public class TangleBluetoothLeService extends Service {
         }
     }
 
-    public void syncTime(){
+    public void syncTime() {
 
-        long sync_timestamp = getTimestamp();
+        long clock_timestamp = getTimestamp();
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             outputStream.write(FLAG_SYNC_TIMELINE);
-            outputStream.write(longToBytes(sync_timestamp, 4));
-            outputStream.write(longToBytes(0,4)); // timelineTimestamp
-            outputStream.write(1); // Timeline paused
-        } catch (Exception e){
+            outputStream.write(longToBytes(clock_timestamp, 4));
+            outputStream.write(longToBytes(0, 4)); // timelineTimestamp
+            outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+        } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
-        byte [] payload = outputStream.toByteArray();
+        byte[] payload = outputStream.toByteArray();
 
         write(payload);
     }
 
-    public byte[] integerToByte(List<Integer> data) {
-        byte[] byteArray = new byte[data.size()];
+    public void syncClock() {
+        long clock_timestamp = getTimestamp();
+        BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(syncCharacteristicUUID);
+        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
 
-        for (int i = 0; i < data.size(); i++)
-            byteArray[i] = data.get(i).byteValue();
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            outputStream.write(longToBytes(clock_timestamp, 4));
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+        byte[] bytes = outputStream.toByteArray();
 
-        return byteArray;
+        try {
+            Log.d(TAG, "Tray write: " + logBytes(bytes));
+            characteristic.setValue(bytes);
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+
+        try {
+            isDataSent = false;
+            bluetoothGatt.writeCharacteristic(characteristic);
+            new Thread(()->{
+                while(!isDataSent){
+                    Log.d(TAG, "Waiting for freeCorridor");
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+                characteristic.setValue(new byte[]{0});
+                isDataSent = false;
+                bluetoothGatt.writeCharacteristic(characteristic);
+            }).start();
+        } catch (Exception e) {
+            Log.e(TAG, "Value was not wrote");
+        }
     }
+
+
+    public long startTime() {
+
+        if(paused) {
+
+            paused = false;
+            startTime = SystemClock.elapsedRealtime();
+            if (pauseTime == 0) {
+                time = pauseTime;
+            }
+
+            Log.d(TAG, "startTime: " + (time / 1000));
+            long clock_timestamp = getTimestamp();
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            try {
+                outputStream.write(FLAG_SYNC_TIMELINE);
+                outputStream.write(longToBytes(clock_timestamp, 4));
+                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
+                outputStream.write(0); // Timeline paused 1 = paused | 0 = play
+            } catch (Exception e) {
+                Log.e(TAG, "" + e);
+            }
+            byte[] payload = outputStream.toByteArray();
+
+            write(payload);
+        }
+        return time;
+    }
+
+    public long pauseTime() {
+
+        if (!paused) {
+            paused = true;
+            lastPauseTime = SystemClock.elapsedRealtime();
+            pauseTime = lastPauseTime - startTime;
+            time += pauseTime;
+            Log.d(TAG, "pauseTime: " + (time / 1000));
+
+            long clock_timestamp = getTimestamp();
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            try {
+                outputStream.write(FLAG_SYNC_TIMELINE);
+                outputStream.write(longToBytes(clock_timestamp, 4));
+                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
+                outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+            } catch (Exception e) {
+                Log.e(TAG, "" + e);
+            }
+            byte[] payload = outputStream.toByteArray();
+
+            write(payload);
+        }
+
+        return time;
+    }
+
+    public long stopTime() {
+
+        paused = true;
+
+        pauseTime = 1;
+        time = 1;
+        Log.d(TAG, "stopTime: " + (time / 1000));
+
+        long clock_timestamp = getTimestamp();
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            outputStream.write(FLAG_SYNC_TIMELINE);
+            outputStream.write(longToBytes(clock_timestamp, 4));
+            outputStream.write(longToBytes(time, 4)); // timelineTimestamp
+            outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+        byte[] payload = outputStream.toByteArray();
+
+        write(payload);
+        return time;
+    }
+
+    public byte[] integerToByte(int value, int byteCount) {
+        byte[] result = new byte[byteCount];
+        for (int i = 0; i < byteCount; i++) {
+            result[i] = (byte) (value & 0xFF);
+            value >>= Byte.SIZE;
+        }
+        return result;
+    }
+
     public byte[] longToBytes(long value, int byteCount) {
         byte[] result = new byte[byteCount];
         for (int i = 0; i < byteCount; i++) {
-            result[i] = (byte)(value & 0xFF);
+            result[i] = (byte) (value & 0xFF);
             value >>= Byte.SIZE;
         }
         return result;
@@ -235,14 +382,14 @@ public class TangleBluetoothLeService extends Service {
     public byte[] doubleToBytes(long value, int byteCount) {
         byte[] result = new byte[byteCount];
         for (int i = 0; i < byteCount; i++) {
-            result[i] = (byte)(value & 0xFF);
+            result[i] = (byte) (value & 0xFF);
             value >>= Byte.SIZE;
         }
         return result;
     }
 
-    public ArrayList<Integer> logBytes (byte[] data){
-        ArrayList<Integer> bytes= new ArrayList<Integer>(data.length);
+    public ArrayList<Integer> logBytes(byte[] data) {
+        ArrayList<Integer> bytes = new ArrayList<Integer>(data.length);
         if (data.length > 0) {
             for (byte datum : data) {
                 bytes.add(datum & 0xFF);
@@ -251,11 +398,11 @@ public class TangleBluetoothLeService extends Service {
         return bytes;
     }
 
-    public long getTimestamp (){
+    public long getTimestamp() {
         return ((new Date().getTime() % x7fffffff));
     }
 
-    public boolean isDataSent (){
+    public boolean isDataSent() {
         return isDataSent;
     }
 
