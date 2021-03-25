@@ -104,7 +104,7 @@ public class TangleBluetoothLeService extends Service {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 new Thread(() -> {
                     syncClock();
-                    while(!isSynchronized){
+                    while (!isSynchronized) {
                         Log.d(TAG, "Waiting for free corridor");
                         try {
                             Thread.sleep(10);
@@ -142,7 +142,7 @@ public class TangleBluetoothLeService extends Service {
                 Log.d(TAG, "Wrote: " + logBytes(data));
                 isDataSent = true;
             }
-            if (data[0] == 0){
+            if (data[0] == 0) {
                 isSynchronized = true;
             }
         }
@@ -171,70 +171,63 @@ public class TangleBluetoothLeService extends Service {
 
     }
 
-    private void write(byte[] payload) {
+    public void write(byte[] payload) {
+        if (isDataSent) {
 
-        long payloadUuid = (long) (Math.random() * xfff);
-        int packetSize = 512;
-        int bytesSize = packetSize - 12;
+            long payloadUuid = (long) (Math.random() * xfff);
+            int packetSize = 512;
+            int bytesSize = packetSize - 12;
 
-        int indexFrom = 0;
-        int indexTo = bytesSize;
+            int indexFrom = 0;
+            int indexTo = bytesSize;
 
-        BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
-        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
+            characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
 
-        while (indexFrom < payload.length) {
-            if (indexTo > payload.length) {
-                indexTo = payload.length;
+            while (indexFrom < payload.length) {
+                if (indexTo > payload.length) {
+                    indexTo = payload.length;
+                }
+
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                try {
+                    outputStream.write(longToBytes(payloadUuid, 4));
+                    outputStream.write(longToBytes(indexFrom, 4));
+                    outputStream.write(longToBytes(payload.length, 4));
+                    outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo));
+                } catch (Exception e) {
+                    Log.e(TAG, "" + e);
+                }
+                byte[] bytes = outputStream.toByteArray();
+
+                try {
+                    Log.d(TAG, "Tray write: " + logBytes(bytes));
+                    characteristic.setValue(bytes);
+                } catch (Exception e) {
+                    Log.e(TAG, "" + e);
+                }
+                new Thread(() -> {
+                    while (!isDataSent) {
+                        Log.d(TAG, "Waiting for corridor");
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    try {
+                        isDataSent = false;
+                        bluetoothGatt.writeCharacteristic(characteristic);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Value was not wrote");
+                    }
+                }).start();
+
+                indexFrom += bytesSize;
+                indexTo = indexFrom + bytesSize;
+
             }
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try {
-                outputStream.write(longToBytes(payloadUuid, 4));
-                outputStream.write(longToBytes(indexFrom, 4));
-                outputStream.write(longToBytes(payload.length, 4));
-                outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo));
-            } catch (Exception e) {
-                Log.e(TAG, "" + e);
-            }
-            byte[] bytes = outputStream.toByteArray();
-
-            try {
-                Log.d(TAG, "Tray write: " + logBytes(bytes));
-                characteristic.setValue(bytes);
-            } catch (Exception e) {
-                Log.e(TAG, "" + e);
-            }
-
-            try {
-                isDataSent = false;
-                bluetoothGatt.writeCharacteristic(characteristic);
-            } catch (Exception e) {
-                Log.e(TAG, "Value was not wrote");
-            }
-
-            indexFrom += bytesSize;
-            indexTo = indexFrom + bytesSize;
-
         }
-    }
-
-    public void syncTime() {
-
-        long clock_timestamp = getTimestamp();
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        try {
-            outputStream.write(FLAG_SYNC_TIMELINE);
-            outputStream.write(longToBytes(clock_timestamp, 4));
-            outputStream.write(longToBytes(0, 4)); // timelineTimestamp
-            outputStream.write(1); // Timeline paused 1 = paused | 0 = play
-        } catch (Exception e) {
-            Log.e(TAG, "" + e);
-        }
-        byte[] payload = outputStream.toByteArray();
-
-        write(payload);
     }
 
     public void syncClock() {
@@ -260,8 +253,8 @@ public class TangleBluetoothLeService extends Service {
         try {
             isDataSent = false;
             bluetoothGatt.writeCharacteristic(characteristic);
-            new Thread(()->{
-                while(!isDataSent){
+            new Thread(() -> {
+                while (!isDataSent) {
                     Log.d(TAG, "Waiting for freeCorridor");
                     try {
                         Thread.sleep(10);
@@ -278,10 +271,43 @@ public class TangleBluetoothLeService extends Service {
         }
     }
 
+    public void syncTime() {
+
+        long clock_timestamp = getTimestamp();
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            outputStream.write(FLAG_SYNC_TIMELINE);
+            outputStream.write(longToBytes(clock_timestamp, 4));
+            outputStream.write(longToBytes(0, 4)); // timelineTimestamp
+            outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+        byte[] payload = outputStream.toByteArray();
+
+        write(payload);
+    }
+
+    public void setTime(Long timeline_timestamp, boolean timeline_paused, Long clock_timestamp) {
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            outputStream.write(FLAG_SYNC_TIMELINE);
+            outputStream.write(longToBytes(clock_timestamp, 4));
+            outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
+            outputStream.write((byte) (timeline_paused ? 1 : 0)); // Timeline paused 1 = paused | 0 = play
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+        byte[] payload = outputStream.toByteArray();
+
+        write(payload);
+    }
 
     public long startTime() {
 
-        if(paused) {
+        if (paused) {
 
             paused = false;
             startTime = SystemClock.elapsedRealtime();
