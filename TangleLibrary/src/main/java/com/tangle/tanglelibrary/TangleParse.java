@@ -3,6 +3,7 @@ package com.tangle.tanglelibrary;
 import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -150,6 +151,24 @@ public class TangleParse {
         }
     }
 
+    private void fillString(String s){
+        byte[] result = new byte[8];
+        if(s.length() >= 8){
+            for (int i = 0; i < 8;i++){
+                result[i] = (byte) s.charAt(i);
+            }
+        } else {
+            for (int i = 0; i < s.length();i++){
+                result[i] = (byte) s.charAt(i);
+            }
+        }
+        try {
+            payload.write(result);
+        } catch (IOException e){
+            Log.e(TAG, "fillString: " + e );
+        }
+    }
+
     private void fillPercentage(double percent) {
         payload.write((int) Math.floor((percent / 100) * 255));
     }
@@ -224,8 +243,7 @@ public class TangleParse {
                     String s = token.get(1);
                     s = s.substring(1);
                     s = s.substring(0, s.length() - 1);
-                    byte[] data = s.getBytes();
-                    fillBytes(data);
+                    fillString(s);
                     break;
                 case "punctuation":
                     if (token.get(1) == "punctuation") {
