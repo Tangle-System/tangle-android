@@ -17,7 +17,6 @@ import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
-import java.util.List;
 import java.util.UUID;
 
 public class TangleBluetoothLeService extends Service {
@@ -105,7 +104,7 @@ public class TangleBluetoothLeService extends Service {
                 new Thread(() -> {
                     syncClock();
                     while (!isSynchronized) {
-                        Log.d(TAG, "Waiting for free corridor");
+                        Log.i(TAG, "OnServiceDiscovered: Waiting for free corridor");
                         try {
                             Thread.sleep(10);
                         } catch (InterruptedException e) {
@@ -171,62 +170,78 @@ public class TangleBluetoothLeService extends Service {
 
     }
 
+    public void getPayloadFromTngl(byte[] tnglCode, Long timeline_timestamp, boolean timeline_paused) {
+        int paused = timeline_paused ? 1 : 0;
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            outputStream.write(FLAG_SYNC_TIMELINE);
+            outputStream.write(longToBytes(getTimestamp(), 4));
+            outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
+            outputStream.write(paused); // timelinePaused
+            outputStream.write(tnglCode);
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+        byte[] payload = outputStream.toByteArray();
+        write(payload);
+
+    }
+
     public void write(byte[] payload) {
-        if (isDataSent) {
 
-            long payloadUuid = (long) (Math.random() * xfff);
-            int packetSize = 512;
-            int bytesSize = packetSize - 12;
+        long payloadUuid = (long) (Math.random() * xfff);
+        int packetSize = 512;
+        int bytesSize = packetSize - 12;
 
-            int indexFrom = 0;
-            int indexTo = bytesSize;
+        int indexFrom = 0;
+        int indexTo = bytesSize;
 
-            BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
-            characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+        BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
+        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
 
-            while (indexFrom < payload.length) {
-                if (indexTo > payload.length) {
-                    indexTo = payload.length;
-                }
-
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                try {
-                    outputStream.write(longToBytes(payloadUuid, 4));
-                    outputStream.write(longToBytes(indexFrom, 4));
-                    outputStream.write(longToBytes(payload.length, 4));
-                    outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo));
-                } catch (Exception e) {
-                    Log.e(TAG, "" + e);
-                }
-                byte[] bytes = outputStream.toByteArray();
-
-                try {
-                    Log.d(TAG, "Tray write: " + logBytes(bytes));
-                    characteristic.setValue(bytes);
-                } catch (Exception e) {
-                    Log.e(TAG, "" + e);
-                }
-                new Thread(() -> {
-                    while (!isDataSent) {
-                        Log.d(TAG, "Waiting for corridor");
-                        try {
-                            Thread.sleep(10);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    try {
-                        isDataSent = false;
-                        bluetoothGatt.writeCharacteristic(characteristic);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Value was not wrote");
-                    }
-                }).start();
-
-                indexFrom += bytesSize;
-                indexTo = indexFrom + bytesSize;
-
+        while (indexFrom < payload.length) {
+            if (indexTo > payload.length) {
+                indexTo = payload.length;
             }
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            try {
+                outputStream.write(longToBytes(payloadUuid, 4));
+                outputStream.write(longToBytes(indexFrom, 4));
+                outputStream.write(longToBytes(payload.length, 4));
+                outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo));
+            } catch (Exception e) {
+                Log.e(TAG, "" + e);
+            }
+            byte[] bytes = outputStream.toByteArray();
+
+            try {
+                Log.d(TAG, "Tray write: " + logBytes(bytes));
+                characteristic.setValue(bytes);
+            } catch (Exception e) {
+                Log.e(TAG, "" + e);
+            }
+            new Thread(() -> {
+                while (!isDataSent) {
+                    Log.i(TAG, "write: Waiting for corridor");
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+                try {
+                    isDataSent = false;
+                    bluetoothGatt.writeCharacteristic(characteristic);
+                } catch (Exception e) {
+                    Log.e(TAG, "Value was not wrote");
+                }
+            }).start();
+
+            indexFrom += bytesSize;
+            indexTo = indexFrom + bytesSize;
+
         }
     }
 
@@ -255,7 +270,7 @@ public class TangleBluetoothLeService extends Service {
             bluetoothGatt.writeCharacteristic(characteristic);
             new Thread(() -> {
                 while (!isDataSent) {
-                    Log.d(TAG, "Waiting for freeCorridor");
+                    Log.i(TAG, "syncClock: Waiting for freeCorridor");
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException e) {
@@ -289,12 +304,12 @@ public class TangleBluetoothLeService extends Service {
         write(payload);
     }
 
-    public void setTime(Long timeline_timestamp, boolean timeline_paused, Long clock_timestamp) {
+    public void setTime(Long timeline_timestamp, boolean timeline_paused) {
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             outputStream.write(FLAG_SYNC_TIMELINE);
-            outputStream.write(longToBytes(clock_timestamp, 4));
+            outputStream.write(longToBytes(getTimestamp(), 4));
             outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
             outputStream.write((byte) (timeline_paused ? 1 : 0)); // Timeline paused 1 = paused | 0 = play
         } catch (Exception e) {
