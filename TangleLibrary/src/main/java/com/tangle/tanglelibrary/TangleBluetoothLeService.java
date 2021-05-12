@@ -25,7 +25,9 @@ public class TangleBluetoothLeService extends Service {
     public final int STATE_CONNECTING = 1;
     public final int STATE_CONNECTED = 2;
     public final int STATE_DISCONNECTING = 3;
-    final int FLAG_SYNC_TIMELINE = 242;
+    final int FLAG_TNGL_BYTES = 251;
+    final int FLAG_SET_TIMELINE = 252;
+    final int FLAG_EMIT_EVENT = 253;
 
     private boolean isDataSent = true;
     private boolean isSynchronized = false;
@@ -111,7 +113,7 @@ public class TangleBluetoothLeService extends Service {
                             e.printStackTrace();
                         }
                     }
-                    syncTime();
+                    syncTimeline();
                 }).start();
             } else {
                 Log.w(TAG, "onServicesDiscovered received: " + status);
@@ -153,15 +155,18 @@ public class TangleBluetoothLeService extends Service {
     }
 
     public void getPayloadFromTngl(byte[] tnglCode) {
-        final long syncTimestamp = getTimestamp();
+        final long syncTimestamp = getClockTimestamp();
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
-            outputStream.write(FLAG_SYNC_TIMELINE);
+            /* Timeline bytes */
+            outputStream.write(FLAG_SET_TIMELINE);
             outputStream.write(longToBytes(syncTimestamp, 4));
             outputStream.write(longToBytes(0, 4)); // timelineTimestamp
-            outputStream.write(1); // timelinePaused 0 = false; 1 = true;
-            outputStream.write(tnglCode);
+            /* Timeline flag */
+            outputStream.write(getTimelineFlag(0, 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
+
+            outputStream.write(tnglCode); // tngl bytes
         } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
@@ -171,15 +176,17 @@ public class TangleBluetoothLeService extends Service {
     }
 
     public void getPayloadFromTngl(byte[] tnglCode, Long timeline_timestamp, boolean timeline_paused) {
-        int paused = timeline_paused ? 1 : 0;
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
-            outputStream.write(FLAG_SYNC_TIMELINE);
-            outputStream.write(longToBytes(getTimestamp(), 4));
+            /* Timeline bytes */
+            outputStream.write(FLAG_SET_TIMELINE);
+            outputStream.write(longToBytes(getClockTimestamp(), 4));
             outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
-            outputStream.write(paused); // timelinePaused
-            outputStream.write(tnglCode);
+            /* Timeline flag */
+            outputStream.write(getTimelineFlag(0, timeline_paused ? 1 : 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
+
+            outputStream.write(tnglCode); // tngl bytes
         } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
@@ -246,7 +253,7 @@ public class TangleBluetoothLeService extends Service {
     }
 
     public void syncClock() {
-        long clock_timestamp = getTimestamp();
+        long clock_timestamp = getClockTimestamp();
         BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(syncCharacteristicUUID);
         characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
 
@@ -286,16 +293,18 @@ public class TangleBluetoothLeService extends Service {
         }
     }
 
-    public void syncTime() {
+    public void syncTimeline() {
 
-        long clock_timestamp = getTimestamp();
+        long clock_timestamp = getClockTimestamp();
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
-            outputStream.write(FLAG_SYNC_TIMELINE);
+            /* Timeline bytes */
+            outputStream.write(FLAG_SET_TIMELINE);
             outputStream.write(longToBytes(clock_timestamp, 4));
             outputStream.write(longToBytes(0, 4)); // timelineTimestamp
-            outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+            /* Timeline flag */
+            outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, Timeline paused 1 = paused | 0 = play
         } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
@@ -304,14 +313,16 @@ public class TangleBluetoothLeService extends Service {
         write(payload);
     }
 
-    public void setTime(Long timeline_timestamp, boolean timeline_paused) {
+    public void setTimeline(Long timeline_timestamp, boolean timeline_paused) {
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
-            outputStream.write(FLAG_SYNC_TIMELINE);
-            outputStream.write(longToBytes(getTimestamp(), 4));
+            /* Timeline bytes */
+            outputStream.write(FLAG_SET_TIMELINE);
+            outputStream.write(longToBytes(getClockTimestamp(), 4));
             outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
-            outputStream.write((byte) (timeline_paused ? 1 : 0)); // Timeline paused 1 = paused | 0 = play
+            /* Timeline flag */
+            outputStream.write(getTimelineFlag(0, timeline_paused ? 1 : 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
         } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
@@ -320,7 +331,7 @@ public class TangleBluetoothLeService extends Service {
         write(payload);
     }
 
-    public long startTime() {
+    public long startTimeline() {
 
         if (paused) {
 
@@ -331,14 +342,16 @@ public class TangleBluetoothLeService extends Service {
             }
 
             Log.d(TAG, "startTime: " + (time / 1000));
-            long clock_timestamp = getTimestamp();
+            long clock_timestamp = getClockTimestamp();
 
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             try {
-                outputStream.write(FLAG_SYNC_TIMELINE);
+                /* Timeline bytes */
+                outputStream.write(FLAG_SET_TIMELINE);
                 outputStream.write(longToBytes(clock_timestamp, 4));
                 outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-                outputStream.write(0); // Timeline paused 1 = paused | 0 = play
+                /* Timeline flag */
+                outputStream.write(getTimelineFlag(0, 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
             } catch (Exception e) {
                 Log.e(TAG, "" + e);
             }
@@ -349,7 +362,7 @@ public class TangleBluetoothLeService extends Service {
         return time;
     }
 
-    public long pauseTime() {
+    public long pauseTimeline() {
 
         if (!paused) {
             paused = true;
@@ -358,14 +371,16 @@ public class TangleBluetoothLeService extends Service {
             time += pauseTime;
             Log.d(TAG, "pauseTime: " + (time / 1000));
 
-            long clock_timestamp = getTimestamp();
+            long clock_timestamp = getClockTimestamp();
 
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             try {
-                outputStream.write(FLAG_SYNC_TIMELINE);
+                /* Timeline bytes */
+                outputStream.write(FLAG_SET_TIMELINE);
                 outputStream.write(longToBytes(clock_timestamp, 4));
                 outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-                outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+                /* Timeline flag */
+                outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
             } catch (Exception e) {
                 Log.e(TAG, "" + e);
             }
@@ -377,22 +392,24 @@ public class TangleBluetoothLeService extends Service {
         return time;
     }
 
-    public long stopTime() {
+    public long stopTimeline() {
 
         paused = true;
 
-        pauseTime = 1;
-        time = 1;
+        pauseTime = 0;
+        time = 0;
         Log.d(TAG, "stopTime: " + (time / 1000));
 
-        long clock_timestamp = getTimestamp();
+        long clock_timestamp = getClockTimestamp();
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
-            outputStream.write(FLAG_SYNC_TIMELINE);
+            /* Timeline bytes */
+            outputStream.write(FLAG_SET_TIMELINE);
             outputStream.write(longToBytes(clock_timestamp, 4));
             outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-            outputStream.write(1); // Timeline paused 1 = paused | 0 = play
+            /* Timeline flag */
+            outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
         } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
@@ -400,6 +417,31 @@ public class TangleBluetoothLeService extends Service {
 
         write(payload);
         return time;
+    }
+
+    public void emitEvent(int device_id, int code, int parameter, long timeline_timestamp) {
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            /* Events bytes */
+            outputStream.write(FLAG_EMIT_EVENT);
+            outputStream.write(device_id);
+            outputStream.write(code);
+            outputStream.write(parameter);
+            /* Timeline timestamp */
+            outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
+        } catch (Exception e) {
+            Log.e(TAG, "" + e);
+        }
+        byte[] payload = outputStream.toByteArray();
+
+        write(payload);
+    }
+
+    public byte getTimelineFlag(int timelineIndex, int timelinePaused) {
+        byte timeline_index = (byte) (timelineIndex & 0b00001111);
+        byte timeline_paused = (byte) ((timelinePaused << 4) & 0b00010000);
+        return (byte) (timeline_paused | timeline_index);
     }
 
     public byte[] integerToByte(int value, int byteCount) {
@@ -439,7 +481,7 @@ public class TangleBluetoothLeService extends Service {
         return bytes;
     }
 
-    public long getTimestamp() {
+    public long getClockTimestamp() {
         return ((new Date().getTime() % x7fffffff));
     }
 
