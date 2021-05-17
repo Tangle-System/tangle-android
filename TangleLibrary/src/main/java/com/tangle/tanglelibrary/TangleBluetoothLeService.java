@@ -196,60 +196,61 @@ public class TangleBluetoothLeService extends Service {
     }
 
     public void write(byte[] payload) {
-
-        long payloadUuid = (long) (Math.random() * xfff);
-        int packetSize = 512;
-        int bytesSize = packetSize - 12;
-
-        int indexFrom = 0;
-        int indexTo = bytesSize;
-
-        BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
-        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-
-        while (indexFrom < payload.length) {
-            if (indexTo > payload.length) {
-                indexTo = payload.length;
-            }
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try {
-                outputStream.write(longToBytes(payloadUuid, 4));
-                outputStream.write(longToBytes(indexFrom, 4));
-                outputStream.write(longToBytes(payload.length, 4));
-                outputStream.write(Arrays.copyOfRange(payload, indexFrom, indexTo));
-            } catch (Exception e) {
-                Log.e(TAG, "" + e);
-            }
-            byte[] bytes = outputStream.toByteArray();
-
-            try {
-                Log.d(TAG, "Tray write: " + logBytes(bytes));
-                characteristic.setValue(bytes);
-            } catch (Exception e) {
-                Log.e(TAG, "" + e);
-            }
-            new Thread(() -> {
-                while (!isDataSent) {
-                    Log.i(TAG, "write: Waiting for corridor");
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
+        new Thread(() -> {
+            while (!isDataSent) {
+                Log.i(TAG, "Write: Waiting for corridor");
                 try {
-                    isDataSent = false;
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            isDataSent = false;
+
+            byte[] thisPayload = payload;
+            long payloadUuid = (long) (Math.random() * xfff);
+            int packetSize = 512;
+            int bytesSize = packetSize - 12;
+
+            int indexFrom = 0;
+            int indexTo = bytesSize;
+
+            BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
+            characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+
+            while (indexFrom < thisPayload.length) {
+                if (indexTo > thisPayload.length) {
+                    indexTo = thisPayload.length;
+                }
+
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                try {
+                    outputStream.write(longToBytes(payloadUuid, 4));
+                    outputStream.write(longToBytes(indexFrom, 4));
+                    outputStream.write(longToBytes(thisPayload.length, 4));
+                    outputStream.write(Arrays.copyOfRange(thisPayload, indexFrom, indexTo));
+                } catch (Exception e) {
+                    Log.e(TAG, "" + e);
+                }
+                byte[] bytes = outputStream.toByteArray();
+
+                try {
+                    Log.d(TAG, "Tray write: " + logBytes(bytes));
+                    characteristic.setValue(bytes);
+                } catch (Exception e) {
+                    Log.e(TAG, "" + e);
+                }
+
+                try {
                     bluetoothGatt.writeCharacteristic(characteristic);
                 } catch (Exception e) {
                     Log.e(TAG, "Value was not wrote");
                 }
-            }).start();
 
-            indexFrom += bytesSize;
-            indexTo = indexFrom + bytesSize;
-
-        }
+                indexFrom += bytesSize;
+                indexTo = indexFrom + bytesSize;
+            }
+        }).start();
     }
 
     public void syncClock() {
@@ -284,6 +285,7 @@ public class TangleBluetoothLeService extends Service {
                         e.printStackTrace();
                     }
                 }
+                // pro tam posilam nulu?
                 characteristic.setValue(new byte[]{0});
                 isDataSent = false;
                 bluetoothGatt.writeCharacteristic(characteristic);
