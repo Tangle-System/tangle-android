@@ -175,14 +175,14 @@ public class TangleBluetoothLeService extends Service {
 
     }
 
-    public void getPayloadFromTngl(byte[] tnglCode, Long timeline_timestamp, boolean timeline_paused) {
+    public void getPayloadFromTngl(byte[] tnglCode, int timeline_timestamp, boolean timeline_paused) {
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             /* Timeline bytes */
             outputStream.write(FLAG_SET_TIMELINE);
             outputStream.write(longToBytes(getClockTimestamp(), 4));
-            outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
+            outputStream.write(integerToBytes(timeline_timestamp, 4)); // timelineTimestamp
             /* Timeline flag */
             outputStream.write(getTimelineFlag(0, timeline_paused ? 1 : 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
 
@@ -315,14 +315,14 @@ public class TangleBluetoothLeService extends Service {
         write(payload);
     }
 
-    public void setTimeline(Long timeline_timestamp, boolean timeline_paused) {
+    public void setTimeline(int timeline_timestamp, boolean timeline_paused) {
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
             /* Timeline bytes */
             outputStream.write(FLAG_SET_TIMELINE);
             outputStream.write(longToBytes(getClockTimestamp(), 4));
-            outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
+            outputStream.write(integerToBytes(timeline_timestamp, 4)); // timelineTimestamp
             /* Timeline flag */
             outputStream.write(getTimelineFlag(0, timeline_paused ? 1 : 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
         } catch (Exception e) {
@@ -333,95 +333,95 @@ public class TangleBluetoothLeService extends Service {
         write(payload);
     }
 
-    public long startTimeline() {
+//    public long startTimeline() {
+//
+//        if (paused) {
+//
+//            paused = false;
+//            startTime = SystemClock.elapsedRealtime();
+//            if (pauseTime == 0) {
+//                time = pauseTime;
+//            }
+//
+//            Log.d(TAG, "startTime: " + (time / 1000));
+//            long clock_timestamp = getClockTimestamp();
+//
+//            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+//            try {
+//                /* Timeline bytes */
+//                outputStream.write(FLAG_SET_TIMELINE);
+//                outputStream.write(longToBytes(clock_timestamp, 4));
+//                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
+//                /* Timeline flag */
+//                outputStream.write(getTimelineFlag(0, 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
+//            } catch (Exception e) {
+//                Log.e(TAG, "" + e);
+//            }
+//            byte[] payload = outputStream.toByteArray();
+//
+//            write(payload);
+//        }
+//        return time;
+//    }
+//
+//    public long pauseTimeline() {
+//
+//        if (!paused) {
+//            paused = true;
+//            lastPauseTime = SystemClock.elapsedRealtime();
+//            pauseTime = lastPauseTime - startTime;
+//            time += pauseTime;
+//            Log.d(TAG, "pauseTime: " + (time / 1000));
+//
+//            long clock_timestamp = getClockTimestamp();
+//
+//            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+//            try {
+//                /* Timeline bytes */
+//                outputStream.write(FLAG_SET_TIMELINE);
+//                outputStream.write(longToBytes(clock_timestamp, 4));
+//                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
+//                /* Timeline flag */
+//                outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
+//            } catch (Exception e) {
+//                Log.e(TAG, "" + e);
+//            }
+//            byte[] payload = outputStream.toByteArray();
+//
+//            write(payload);
+//        }
+//
+//        return time;
+//    }
+//
+//    public long stopTimeline() {
+//
+//        paused = true;
+//
+//        pauseTime = 0;
+//        time = 0;
+//        Log.d(TAG, "stopTime: " + (time / 1000));
+//
+//        long clock_timestamp = getClockTimestamp();
+//
+//        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+//        try {
+//            /* Timeline bytes */
+//            outputStream.write(FLAG_SET_TIMELINE);
+//            outputStream.write(longToBytes(clock_timestamp, 4));
+//            outputStream.write(longToBytes(time, 4)); // timelineTimestamp
+//            /* Timeline flag */
+//            outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
+//        } catch (Exception e) {
+//            Log.e(TAG, "" + e);
+//        }
+//        byte[] payload = outputStream.toByteArray();
+//
+//        write(payload);
+//        return time;
+//    }
 
-        if (paused) {
-
-            paused = false;
-            startTime = SystemClock.elapsedRealtime();
-            if (pauseTime == 0) {
-                time = pauseTime;
-            }
-
-            Log.d(TAG, "startTime: " + (time / 1000));
-            long clock_timestamp = getClockTimestamp();
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try {
-                /* Timeline bytes */
-                outputStream.write(FLAG_SET_TIMELINE);
-                outputStream.write(longToBytes(clock_timestamp, 4));
-                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-                /* Timeline flag */
-                outputStream.write(getTimelineFlag(0, 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
-            } catch (Exception e) {
-                Log.e(TAG, "" + e);
-            }
-            byte[] payload = outputStream.toByteArray();
-
-            write(payload);
-        }
-        return time;
-    }
-
-    public long pauseTimeline() {
-
-        if (!paused) {
-            paused = true;
-            lastPauseTime = SystemClock.elapsedRealtime();
-            pauseTime = lastPauseTime - startTime;
-            time += pauseTime;
-            Log.d(TAG, "pauseTime: " + (time / 1000));
-
-            long clock_timestamp = getClockTimestamp();
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try {
-                /* Timeline bytes */
-                outputStream.write(FLAG_SET_TIMELINE);
-                outputStream.write(longToBytes(clock_timestamp, 4));
-                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-                /* Timeline flag */
-                outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
-            } catch (Exception e) {
-                Log.e(TAG, "" + e);
-            }
-            byte[] payload = outputStream.toByteArray();
-
-            write(payload);
-        }
-
-        return time;
-    }
-
-    public long stopTimeline() {
-
-        paused = true;
-
-        pauseTime = 0;
-        time = 0;
-        Log.d(TAG, "stopTime: " + (time / 1000));
-
-        long clock_timestamp = getClockTimestamp();
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        try {
-            /* Timeline bytes */
-            outputStream.write(FLAG_SET_TIMELINE);
-            outputStream.write(longToBytes(clock_timestamp, 4));
-            outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-            /* Timeline flag */
-            outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
-        } catch (Exception e) {
-            Log.e(TAG, "" + e);
-        }
-        byte[] payload = outputStream.toByteArray();
-
-        write(payload);
-        return time;
-    }
-
-    public void emitEvent(int device_id, int code, int parameter, long timeline_timestamp) {
+    public void emitEvent(int device_id, int code, int parameter, int timeline_timestamp) {
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
@@ -431,7 +431,7 @@ public class TangleBluetoothLeService extends Service {
             outputStream.write(code);
             outputStream.write(parameter);
             /* Timeline timestamp */
-            outputStream.write(longToBytes(timeline_timestamp, 4)); // timelineTimestamp
+            outputStream.write(integerToBytes(timeline_timestamp, 4)); // timelineTimestamp
         } catch (Exception e) {
             Log.e(TAG, "" + e);
         }
@@ -446,7 +446,7 @@ public class TangleBluetoothLeService extends Service {
         return (byte) (timeline_paused | timeline_index);
     }
 
-    public byte[] integerToByte(int value, int byteCount) {
+    public byte[] integerToBytes(int value, int byteCount) {
         byte[] result = new byte[byteCount];
         for (int i = 0; i < byteCount; i++) {
             result[i] = (byte) (value & 0xFF);
