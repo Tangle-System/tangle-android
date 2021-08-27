@@ -8,7 +8,7 @@ public class Stopwatch {
     boolean paused;
     long lastPauseTime;
     long startTime;
-    long time;
+    int time;
 
     public Stopwatch() {
         this.pause = true;
@@ -18,7 +18,7 @@ public class Stopwatch {
         this.time = 0;
     }
 
-    public long start() {
+    public int start() {
         if (pause) {
 
             pause = false;
@@ -28,10 +28,10 @@ public class Stopwatch {
             }
             return time;
         }
-        return time +(SystemClock.elapsedRealtime() - startTime);
+        return time + (int) (SystemClock.elapsedRealtime() - startTime);
     }
 
-    public long stop() {
+    public int stop() {
         pause = true;
 
         paused = false;
@@ -39,7 +39,7 @@ public class Stopwatch {
         return time;
     }
 
-    public long pause() {
+    public int pause() {
         if (!pause) {
             pause = true;
             paused = true;
@@ -49,13 +49,13 @@ public class Stopwatch {
         return time;
     }
 
-    public long getTime(){
+    public int getTime(){
         if (pause){
             return time;
         } else if (!paused){
-            return SystemClock.elapsedRealtime() -startTime;
+            return (int) (SystemClock.elapsedRealtime() -startTime);
         } else {
-            return time + (SystemClock.elapsedRealtime() - startTime);
+            return time + (int) (SystemClock.elapsedRealtime() - startTime);
         }
     }
 }

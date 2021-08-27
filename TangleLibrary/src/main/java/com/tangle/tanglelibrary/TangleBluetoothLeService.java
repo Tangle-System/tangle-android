@@ -7,8 +7,9 @@ import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothProfile;
 import android.content.Intent;
+import android.os.Handler;
 import android.os.IBinder;
-import android.os.SystemClock;
+import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -37,6 +38,7 @@ public class TangleBluetoothLeService extends Service {
     private long startTime;
     private long lastPauseTime;
     private long pauseTime = 0;
+    private final asyncWriteThread tT;
 
     static final long x7fffffff = Long.decode("0x7fffffff");
     static final long xfff = Long.decode("0xffffffff");
@@ -49,6 +51,10 @@ public class TangleBluetoothLeService extends Service {
     private int connectionState = STATE_DISCONNECTED;
     private TangleBluetoothLeService.ChangeBtStateListener listener;
 
+    public TangleBluetoothLeService() {
+        tT = new asyncWriteThread();
+        tT.start();
+    }
 
     public void connectBt(BluetoothDevice device) {
         isConnecting = true;
@@ -195,62 +201,79 @@ public class TangleBluetoothLeService extends Service {
 
     }
 
+    public static class asyncWriteThread extends Thread {
+        public Handler mHandler;
+
+        @Override
+        public void run() {
+            super.run();
+            Looper.prepare();
+            mHandler = new Handler();
+            Looper.loop();
+        }
+    }
+
+
     public void write(byte[] payload) {
-        new Thread(() -> {
-            while (!isDataSent) {
-                Log.i(TAG, "Write: Waiting for corridor");
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+
+        tT.mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                while (!isDataSent) {
+                    Log.i(TAG, "Write: Waiting for corridor");
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+                isDataSent = false;
+
+                byte[] thisPayload = payload;
+                long payloadUuid = (long) (Math.random() * xfff);
+                int packetSize = 512;
+                int bytesSize = packetSize - 12;
+
+                int indexFrom = 0;
+                int indexTo = bytesSize;
+
+                BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
+                characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+
+                while (indexFrom < thisPayload.length) {
+                    if (indexTo > thisPayload.length) {
+                        indexTo = thisPayload.length;
+                    }
+
+                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                    try {
+                        outputStream.write(longToBytes(payloadUuid, 4));
+                        outputStream.write(longToBytes(indexFrom, 4));
+                        outputStream.write(longToBytes(thisPayload.length, 4));
+                        outputStream.write(Arrays.copyOfRange(thisPayload, indexFrom, indexTo));
+                    } catch (Exception e) {
+                        Log.e(TAG, "" + e);
+                    }
+                    byte[] bytes = outputStream.toByteArray();
+
+                    try {
+                        Log.d(TAG, "Tray write: " + logBytes(bytes));
+                        characteristic.setValue(bytes);
+                    } catch (Exception e) {
+                        Log.e(TAG, "" + e);
+                    }
+
+                    try {
+                        bluetoothGatt.writeCharacteristic(characteristic);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Value was not wrote");
+                    }
+
+                    indexFrom += bytesSize;
+                    indexTo = indexFrom + bytesSize;
                 }
             }
-            isDataSent = false;
-
-            byte[] thisPayload = payload;
-            long payloadUuid = (long) (Math.random() * xfff);
-            int packetSize = 512;
-            int bytesSize = packetSize - 12;
-
-            int indexFrom = 0;
-            int indexTo = bytesSize;
-
-            BluetoothGattCharacteristic characteristic = bluetoothGatt.getService(mDeviceUUID).getCharacteristic(terminalCharacteristicUUID);
-            characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-
-            while (indexFrom < thisPayload.length) {
-                if (indexTo > thisPayload.length) {
-                    indexTo = thisPayload.length;
-                }
-
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                try {
-                    outputStream.write(longToBytes(payloadUuid, 4));
-                    outputStream.write(longToBytes(indexFrom, 4));
-                    outputStream.write(longToBytes(thisPayload.length, 4));
-                    outputStream.write(Arrays.copyOfRange(thisPayload, indexFrom, indexTo));
-                } catch (Exception e) {
-                    Log.e(TAG, "" + e);
-                }
-                byte[] bytes = outputStream.toByteArray();
-
-                try {
-                    Log.d(TAG, "Tray write: " + logBytes(bytes));
-                    characteristic.setValue(bytes);
-                } catch (Exception e) {
-                    Log.e(TAG, "" + e);
-                }
-
-                try {
-                    bluetoothGatt.writeCharacteristic(characteristic);
-                } catch (Exception e) {
-                    Log.e(TAG, "Value was not wrote");
-                }
-
-                indexFrom += bytesSize;
-                indexTo = indexFrom + bytesSize;
-            }
-        }).start();
+        });
     }
 
     public void syncClock() {
@@ -332,94 +355,6 @@ public class TangleBluetoothLeService extends Service {
 
         write(payload);
     }
-
-//    public long startTimeline() {
-//
-//        if (paused) {
-//
-//            paused = false;
-//            startTime = SystemClock.elapsedRealtime();
-//            if (pauseTime == 0) {
-//                time = pauseTime;
-//            }
-//
-//            Log.d(TAG, "startTime: " + (time / 1000));
-//            long clock_timestamp = getClockTimestamp();
-//
-//            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-//            try {
-//                /* Timeline bytes */
-//                outputStream.write(FLAG_SET_TIMELINE);
-//                outputStream.write(longToBytes(clock_timestamp, 4));
-//                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-//                /* Timeline flag */
-//                outputStream.write(getTimelineFlag(0, 0)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
-//            } catch (Exception e) {
-//                Log.e(TAG, "" + e);
-//            }
-//            byte[] payload = outputStream.toByteArray();
-//
-//            write(payload);
-//        }
-//        return time;
-//    }
-//
-//    public long pauseTimeline() {
-//
-//        if (!paused) {
-//            paused = true;
-//            lastPauseTime = SystemClock.elapsedRealtime();
-//            pauseTime = lastPauseTime - startTime;
-//            time += pauseTime;
-//            Log.d(TAG, "pauseTime: " + (time / 1000));
-//
-//            long clock_timestamp = getClockTimestamp();
-//
-//            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-//            try {
-//                /* Timeline bytes */
-//                outputStream.write(FLAG_SET_TIMELINE);
-//                outputStream.write(longToBytes(clock_timestamp, 4));
-//                outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-//                /* Timeline flag */
-//                outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
-//            } catch (Exception e) {
-//                Log.e(TAG, "" + e);
-//            }
-//            byte[] payload = outputStream.toByteArray();
-//
-//            write(payload);
-//        }
-//
-//        return time;
-//    }
-//
-//    public long stopTimeline() {
-//
-//        paused = true;
-//
-//        pauseTime = 0;
-//        time = 0;
-//        Log.d(TAG, "stopTime: " + (time / 1000));
-//
-//        long clock_timestamp = getClockTimestamp();
-//
-//        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-//        try {
-//            /* Timeline bytes */
-//            outputStream.write(FLAG_SET_TIMELINE);
-//            outputStream.write(longToBytes(clock_timestamp, 4));
-//            outputStream.write(longToBytes(time, 4)); // timelineTimestamp
-//            /* Timeline flag */
-//            outputStream.write(getTimelineFlag(0, 1)); // 0 = main timeline, timelinePaused 0 = false; 1 = true;
-//        } catch (Exception e) {
-//            Log.e(TAG, "" + e);
-//        }
-//        byte[] payload = outputStream.toByteArray();
-//
-//        write(payload);
-//        return time;
-//    }
 
     public void emitEvent(int device_id, int code, int parameter, int timeline_timestamp) {
 
